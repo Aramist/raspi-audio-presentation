@@ -9,12 +9,8 @@ def get_duration(fname):
 config = {
     'n_stims': 40,
     'audio_files': [
-        'white_sine_2s_ramped.wav',
+        'quiet_white_sine_2s_ramped.wav',
         # 'low_freq_sequence.wav',
-    ],
-    'audio_volumes': [
-        -30,
-        # -40,
     ],
     'pulse_durations': [  # Length of the ttl pulse associated with each sound (ms)
         25,

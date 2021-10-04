@@ -1,18 +1,24 @@
-import datetime
-import os
 import sched
 import time
 
+import numpy as np
+import pyaudio
 import RPi.GPIO as io
+from scipy.io import wavfile
 
 import audio_config
 
 
+# Generate Pyaudio instance
+pa = pyaudio.PyAudio()
 # Load in config
 config = audio_config.config
 n_stims = config['n_stims']
 audio_fnames = config['audio_files']
-audio_vols = ['{:+d}'.format(vol) for vol in config['audio_volumes']]
+_read_audio = [wavfile.read(fname) for fname in audio_fnames]
+audio_fs = [a[0] for a in _read_audio]
+audio_samples = [a[1] for a in _read_audio]
+# audio_vols = config['audio_volumes']
 audio_durations = config['audio_durations']
 total_audio = sum(audio_durations)
 delays = config['delays']
@@ -20,6 +26,9 @@ delays.insert(0, 0)  # Makes writing the loop easier
 total_delay = sum(delays)
 pulse_lens = config['pulse_durations']
 warnings = config['warnings']
+
+prepared_stream = None
+
 
 io_pin = 17
 scheduler = sched.scheduler(timefunc=time.time, delayfunc=time.sleep)
@@ -35,17 +44,36 @@ def pulse_ms(length_ms):
     io.output(io_pin, io.LOW)
 
 
+def prepare_stream(audio_index):
+    fs = audio_fs[audio_index]
+    global prepared_stream
+    prepared_stream = pa.open(format=pyaudio.paInt16, channels=1, rate=fs, output=True, output_device_index=0)
+
+
+def play_sound(audio_idx, chunk_size=256):
+    global prepared_stream
+    if prepared_stream is None:
+        return
+    samples = audio_samples[audio_idx]
+    fs = audio_fs[audio_idx]
+
+    chunk_idx = np.arange(chunk_size, samples.shape[0], chunk_size)
+    chunks = np.split(samples, chunk_idx)
+    pulse_ms(pulse_lens[audio_idx])
+    for chunk in chunks:
+        if len(chunk) == 0:
+            continue
+        b = chunk.tobytes()
+        prepared_stream.write(b, num_frames=len(chunk))
+    prepared_stream.stop_stream()
+    prepared_stream.close()
+    prepared_stream = None
+
+
 def print_stim_count(i):
     for _ in range(10):  # New on 2021-09-07: clear the screen before printing
         print()
     print('Stim {}/{}'.format(i + 1, n_stims))
-    
-def play_audio(audio_idx):
-    pulse_ms(pulse_lens[audio_idx])
-    os.system('play {} vol {}dB'.format(
-            audio_fnames[audio_idx],
-            audio_vols[audio_idx]
-    ))
 
 
 def heads_up(count):
@@ -96,9 +124,16 @@ for i in range(n_stims):
 
         # Register sounds
         scheduler.enterabs(
+            first_stim_time + offset + sum(delays[:audio_idx + 1]) + sum(audio_durations[:audio_idx]) - 1,
+            1,
+            prepare_stream,
+            argument=(audio_idx,)
+        )
+
+        scheduler.enterabs(
             first_stim_time + offset + sum(delays[:audio_idx + 1]) + sum(audio_durations[:audio_idx]),
             3,
-            play_audio,
+            play_sound,
             argument=(audio_idx,)
         )
     
@@ -115,4 +150,5 @@ for i in range(n_stims):
     # the call to run blocks the interpreter so there is no need to add a sleep here
 print('Registration done, running scheduler')
 scheduler.run(blocking=True)
+pa.terminate()
 io.cleanup()
