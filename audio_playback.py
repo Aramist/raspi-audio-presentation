@@ -47,10 +47,17 @@ def pulse_ms(length_ms):
 def prepare_stream(audio_index):
     fs = audio_fs[audio_index]
     global prepared_stream
-    prepared_stream = pa.open(format=pyaudio.paInt16, channels=1, rate=fs, output=True, output_device_index=0)
+    print(fs)
+    dtype = audio_samples[audio_index].dtype
+    if dtype == np.int16:
+        prepared_stream = pa.open(format=pyaudio.paInt16, channels=1, rate=fs, output=True, output_device_index=0)
+    elif dtype == np.int32:
+        prepared_stream = pa.open(format=pyaudio.paInt32, channels=1, rate=fs, output=True, output_device_index=0)
+    else:
+        print('Bad audio format. Check bitrate and dtype')
 
 
-def play_sound(audio_idx, chunk_size=256):
+def play_sound(audio_idx, chunk_size=1024):
     global prepared_stream
     if prepared_stream is None:
         return
